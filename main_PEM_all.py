@@ -18,7 +18,7 @@ data = np.load(data_file_path)["data"]
 data = data[..., target_channel]
 print("raw time series shape: {0}".format(data.shape))
 
-###数据划分
+
 l, n = data.shape
 num_samples = data.shape[0] - history_seq_len - future_seq_len + 1
 train_num_short = round(num_samples * train_ratio)
@@ -58,13 +58,13 @@ def feature_target(data,input_len,output_len):
 
 raw_feature, fin_target = feature_target(data_new ,history_seq_len, future_seq_len)
 
-### 训练集划分
+### train data
 train_x_raw = raw_feature[0:train_num_short,:,:]
 train_y = fin_target[0:train_num_short,:,:]
-### 验证集划分
+### vaild data
 vail_x_raw = raw_feature[train_num_short:train_num_short+valid_num_short,:,:]
 vail_y = fin_target[train_num_short:train_num_short+valid_num_short,:,:]
-### 测试集划分
+### test data
 test_x_raw = raw_feature[train_num_short+valid_num_short:,:,:]
 test_y = fin_target[train_num_short+valid_num_short:,:,:]
 
