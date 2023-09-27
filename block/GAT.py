@@ -11,41 +11,40 @@ import torch.nn.functional as F
 class GraphAttentionLayer(nn.Module):
     """
     Simple GAT layer, similar to https://arxiv.org/abs/1710.10903 
-    图注意力层
     """
     def __init__(self, in_c, out_c, dropout):
         super(GraphAttentionLayer, self).__init__()
-        self.in_c = in_c   # 节点表示向量的输入特征数
-        self.out_c = out_c   # 节点表示向量的输出特征数
+        self.in_c = in_c   # number of input feature
+        self.out_c = out_c   # number of output feature
         self.dropout = dropout
         
-        # 定义可训练参数，即论文中的W和a
+        # Weight and bias
         self.W = nn.Parameter(torch.zeros(size=(in_c, out_c)))
         nn.init.kaiming_uniform_(self.W)
         self.a = nn.Parameter(torch.zeros(size=(2*out_c, 1)))
-        nn.init.kaiming_uniform_(self.a)   # 初始化
+        nn.init.kaiming_uniform_(self.a)   # initialize
         
-        # 定义leakyrelu激活函数
+        # leakyrelu
         self.leakyrelu = nn.LeakyReLU() #当x<0,alpha*x
     
     def forward(self, inp, adj):
         """
-        inp: input_fea [N, in_features]  in_features表示节点的输入特征向量元素个数 the input data, [B, N, C]
-        adj: 图的邻接矩阵  [N, N] 非零即一，数据结构基本知识
+        inp: input_fea [N, in_features]. It is the input data, [B, N, C]
+        adj: Adjacency matrix
         """
         B, N = inp.size(0), inp.size(1)
-        h = torch.matmul(inp, self.W)   # [B,N,out_features] ,其中matmul保证维度不塌缩
+        h = torch.matmul(inp, self.W)   # [B,N,out_features]
 
         a_input = torch.cat([h.repeat(1, 1, N).view(B, N * N, -1), h.repeat(1, N, 1)], dim=2).view(B, N, -1, 2 * self.out_c)
         # [B, N, N, 2 * out_features]
         e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(3))
-        # [B,N, N, 1] => [B, N, N] 图注意力的相关系数（未归一化）
+        # [B,N, N, 1] => [B, N, N] Correlation coefficient of the graph attention
         
-        zero_vec = -1e12 * torch.ones_like(e)    # 将没有连接的边置为负无穷,形状和e一致的1矩阵
+        zero_vec = -1e12 * torch.ones_like(e)    # Set the unjoined edges as a negative infinite 1-matrix with the same shape as e
 
         attention = torch.where(adj > 0, e, zero_vec)   # [B,N, N]
-        # 表示如果邻接矩阵元素大于0时，则两个节点有连接，该位置的注意力系数保留，
-        # 否则需要mask并置为非常小的值，原因是softmax的时候这个最小值会不考虑。
+        # It means that if the adjacency matrix element is greater than 0, the two nodes are connected, and the attention coefficient of this position is retained; otherwise, the mask needs to be set to a very small value, because this minimum value is not considered in softmax.
+
         attention = F.softmax(attention, dim=2)    # softmax形状保持不变 [N, N]，得到归一化的注意力权重！
         attention = F.dropout(attention, self.dropout, training=self.training)   # dropout，防止过拟合
         h_prime = torch.matmul(attention, h)  # [B,N, N].[N, out_features] => [B,N, out_features]
