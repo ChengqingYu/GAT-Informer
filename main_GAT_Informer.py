@@ -23,8 +23,6 @@ np.random.seed(seed)
 def Inverse_normalization(x,max,min):
     return x * (max - min) + min
 
-
-### PEMS-BAY、METR-LA、PeMS04、PeMS08、AQI
 data_name = 'PeMS04'
 data_file = "data/" + data_name + "/data12.npz"
 
@@ -36,7 +34,8 @@ epoch = 51
 IF_mask = 0
 DATASET_INPUT_LEN = 12 # history length
 DATASET_OUTPUT_LEN = 12 # future length
-### 超参数
+
+### hyperparameter
 IF_STACK = False   # Whether to use InformerStack
 num_layer = 2      # Number of layers of GAT
 NUM_NODES = 307    # num nodes
@@ -69,36 +68,28 @@ day_of_month_size  = 31
 day_of_year_size   = 366
 IF_cross = True       ### Whether to use cross attention to merge GAT with Informer
 
-###调整学习率和训练梯度
+### Learning rate adjustment method
 lr_rate = 0.002       ### learn rate
 weight_decay = 0.0005 ### weight decay
 max_norm = 0          ### Gradient pruning
-max_num =  100        ### 和max_norm配套的东西
-IF_mask_rate = True   ### PEMS08以及METR-LA是True
-num_lr = 5            ###多少步验证集误差没有下降就调整学习率
+num_lr = 5            
 gamme = 0.5
 milestone = [1,4,10,15,30,50,70,90] ### milestone
 
-###CPU和GPU
+### CPU and GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device2 = torch.device("cpu")
 
-### 获取训练集数据
-if IF_mask == 0.25:
-    train_x = raw_data["train_x_mask_25"]
-elif IF_mask == 0.5:
-    train_x = raw_data["train_x_mask_50"]
-elif IF_mask == 0.75:
-    train_x = raw_data["train_x_mask_75"]
-else:
-    train_x = raw_data["train_x_raw"]
+### train data
+
+train_x = raw_data["train_x_raw"]
 
 train_y = raw_data["train_y"]
 
 graph_data = torch.tensor(raw_data["graph"]).to(torch.float32)
 
 
-###输入，输出长度，时间序列数量
+### history length, future length and number of time series
 input_len = train_x.shape[-1]
 output_len = train_y.shape[-1]
 num_id = train_x.shape[-2]
@@ -110,32 +101,18 @@ train_data = torch.cat([train_x,train_y],dim=2).to(torch.float32)
 train_data = DataLoader(train_data,batch_size=batch_size,shuffle=False)
 #print(train_data.shape)
 
-### 获取验证集数据
-if IF_mask == 0.25:
-    valid_x = raw_data["vail_x_mask_25"]
-elif IF_mask == 0.5:
-    valid_x = raw_data["vail_x_mask_50"]
-elif IF_mask == 0.75:
-    valid_x = raw_data["vail_x_mask_75"]
-else:
-    valid_x = raw_data["vail_x_raw"]
+### vaild data
 
+valid_x = raw_data["vail_x_raw"]
 valid_y = raw_data["vail_y"]
 valid_x = torch.tensor(valid_x).to(torch.float32)
 valid_y = torch.tensor(valid_y).to(torch.float32)
 valid_data = torch.cat([valid_x,valid_y],dim=2).to(torch.float32)
 valid_data = DataLoader(valid_data,batch_size=batch_size,shuffle=False)
 
-### 测试集
-if IF_mask == 0.25:
-    test_x = raw_data["test_x_mask_25"]
-elif IF_mask == 0.5:
-    test_x = raw_data["test_x_mask_50"]
-elif IF_mask == 0.75:
-    test_x = raw_data["test_x_mask_75"]
-else:
-    test_x = raw_data["test_x_raw"]
+### test data
 
+test_x = raw_data["test_x_raw"]
 test_y = raw_data["test_y"]
 test_x = torch.tensor(test_x)
 test_y = torch.tensor(test_y)
@@ -146,17 +123,9 @@ test_data = DataLoader(test_data,batch_size=batch_size,shuffle=False)
 max_min = raw_data['max_min']
 max_data, min_data = max_min[0],max_min[1]
 
-if IF_mask == 0.25:
-    mask_id = raw_data["mask_id_25"]
-elif IF_mask == 0.5:
-    mask_id = raw_data["mask_id_50"]
-elif IF_mask == 0.75:
-    mask_id = raw_data["mask_id_75"]
-else:
-    print("没有任何MASK")
 
-#print(mask_id)
-### 数据处理完了，开始建模
+
+### the model
 
 class GATINFORMER(nn.Module):
     def __init__(self, IF_STACK,num_layer, enc_in, dec_in, c_out, seq_len, label_len, out_len,
@@ -194,31 +163,32 @@ class GATINFORMER(nn.Module):
         self.decoder = nn.Conv1d(in_channels=out_len,out_channels=out_len,kernel_size=1)
 
     def forward(self, x, y, graph_data, device):
+        # the input feature is x [B,N,L1]. B is the batch size. N is the number of time series. L is the sequence length 
+        # the target is y [B,N,L2]
 
-        ###图数据处理
+        ###Spatial modeling based on GAT
         graph_data = graph_data.to(device)
         graph_data = GATINFORMER.calculate_laplacian_with_self_loop(graph_data)
 
-        ###基于GAT的空间建模
         for i in range(self.num_layer):
             if i == 0:
                 prediction_GAT = F.gelu(self.GAT1(x,graph_data))
             else:
                 prediction_GAT = F.gelu(self.GAT2(prediction_GAT, graph_data))
 
-        ### 基于Informer的时间建模
+        ### Temporal modeling based on Informer
         prediction_In = self.Informer(x, y)
 
-        ###特征融合
+        ###Feature fusion
         if self.IF_cross:
-            # 方案1：采用cross_attention的思想
+            # use the cross_attention
             x = self.cross(prediction_In, prediction_GAT).transpose(-2, -1)
         else:
-            #方案2：直接相加并正则化
+            #use the add and layer norm
             x = prediction_GAT + prediction_In
             x = self.lay_norm(x).transpose(-2, -1)
 
-        ###生成最终预测结果
+        ### Obtain the final results
         x = self.decoder(x).transpose(-2, -1)
         return x
 
@@ -233,7 +203,7 @@ class GATINFORMER(nn.Module):
         )
         return normalized_laplacian
 
-###模型设置
+### Model initialization
 my_net = GATINFORMER(IF_STACK,num_layer,enc_in, dec_in, c_out, seq_len, label_len, out_len,
                  time_of_day_size, day_of_week_size, day_of_month_size=day_of_month_size,
                  day_of_year_size=day_of_year_size,
@@ -247,25 +217,22 @@ optimizer = optim.Adam(params=my_net.parameters(),lr=lr_rate,weight_decay=weight
 num_vail = 0
 min_vaild_loss = float("inf")
 
-###开始训练
+### Start of training
 for i in range(epoch):
     num = 0
     loss_out = 0.0
     my_net.train()
     for data in train_data:
         my_net.zero_grad()
-        ###训练集情况
+        
         train_feature = data[:,:,:input_len].to(device)
         train_target = data[:,:,input_len:].to(device)
         train_pre = my_net(train_feature,train_target,graph_data, device)
-        if IF_mask_rate:
-            loss_data = masked_mae(train_pre,train_target,0.0)
-        else:
-            loss_data = masked_mae(train_pre, train_target)
-        ###误差反向传播
+
+        loss_data = masked_mae(train_pre,train_target,0.0)
         loss_data.backward()
 
-        if max_norm > 0 and i < max_num:
+        if max_norm > 0:
             nn.utils.clip_grad_norm_(my_net.parameters(), max_norm = max_norm)
         else:
             pass
@@ -275,47 +242,47 @@ for i in range(epoch):
         loss_out += loss_data
     loss_out = loss_out/num
 
-    ###验证集情况
+    ###valid_dat
     num_va = 0
     loss_vaild = 0.0
     my_net.eval()
     with torch.no_grad():
-        for data in test_data:
-            ###验证集情况
+        for data in valid_data:
+
             valid_x = data[:, :, :input_len].to(device)
             valid_y = data[:, :, input_len:].to(device)
             valid_pre = my_net(valid_x,valid_y,graph_data, device)
-            if IF_mask_rate:
-                loss_data = masked_mae(valid_pre, valid_y,0.0)
-            else:
-                loss_data = masked_mae(valid_pre, valid_y)
+            loss_data = masked_mae(valid_pre, valid_y,0.0)
 
             num_va += 1
             loss_vaild += loss_data
         loss_vaild = loss_vaild / num_va
 
     """
-    ###学习率调整策略
+    ### When the Loss does not decrease for several times, the learning rate is adjusted
+
     if loss_vaild < min_vaild_loss:
         num_vail = 0
         min_vaild_loss = loss_vaild
     else:
         num_vail +=1
-    ###满足条件时调整学习率
+
     if num_vail >= num_lr:
         num_vail = 0
         for params in optimizer.param_groups:
-            # 遍历Optimizer中的每一组参数，将该组参数的学习率 * 0.5
+
             params['lr'] *= gamme
     """
+
+    ### Adjust the learning rate when the training number reaches the milestone
     if (i + 1) in milestone:
         for params in optimizer.param_groups:
-            # 遍历Optimizer中的每一组参数，将该组参数的学习率 * 0.5
+
             params['lr'] *= gamme
 
-    print('训练集第{}个epoch的训练集Loss: {:02.4f},验证集Loss:{:02.4f}:'.format(i+1,loss_out,loss_vaild))
+    print('loss of epoch {} of the training set: {:02.4f}, loss of valid_data:{:02.4f}:'.format(i+1,loss_out,loss_vaild))
 
-
+### test data
 my_net.eval()
 my_net = my_net.to(device2)
 with torch.no_grad():
@@ -339,39 +306,19 @@ final_pred = Inverse_normalization(all_pre, max_data, min_data)
 final_target = Inverse_normalization(all_true, max_data, min_data)
 
 
-if IF_mask_rate:
-###met系列
-    mae,mape,rmse = masked_mae(final_pred, final_target,0.0),\
-                    masked_mape(final_pred, final_target,0.0)*100,masked_rmse(final_pred, final_target,0.0)
-    print('测试集完整的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse,mape,mae))
+mae,mape,rmse = masked_mae(final_pred, final_target,0.0),\
+                masked_mape(final_pred, final_target,0.0)*100,masked_rmse(final_pred, final_target,0.0)
 
-    mae2,mape2,rmse2 = masked_mae(final_pred[:,:,2], final_target[:,:,2],0.0),\
-                       masked_mape(final_pred[:,:,2], final_target[:,:,2],0.0)*100,masked_rmse(final_pred[:,:,2], final_target[:,:,2],0.0)
-    print('测试集3步的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
+print('Overall prediction performance:\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse,mape,mae))
 
-    mae2,mape2,rmse2 = masked_mae(final_pred[:,:,5], final_target[:,:,5],0.0),\
-                       masked_mape(final_pred[:,:,5], final_target[:,:,5],0.0)*100,masked_rmse(final_pred[:,:,5], final_target[:,:,5],0.0)
-    print('测试集6步的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
+mae2,mape2,rmse2 = masked_mae(final_pred[:,:,2], final_target[:,:,2],0.0),\
+                    masked_mape(final_pred[:,:,2], final_target[:,:,2],0.0)*100,masked_rmse(final_pred[:,:,2], final_target[:,:,2],0.0)
+print('Prediction performance in the third time step:\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
 
-    mae2,mape2,rmse2 = masked_mae(final_pred[:,:,-1], final_target[:,:,-1],0.0),\
-                       masked_mape(final_pred[:,:,-1], final_target[:,:,-1],0.0)*100,masked_rmse(final_pred[:,:,-1], final_target[:,:,-1],0.0)
-    print('测试集12步的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
+mae2,mape2,rmse2 = masked_mae(final_pred[:,:,5], final_target[:,:,5],0.0),\
+                    masked_mape(final_pred[:,:,5], final_target[:,:,5],0.0)*100,masked_rmse(final_pred[:,:,5], final_target[:,:,5],0.0)
+print('Prediction performance in the sixth time step:\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
 
-else:
-    ###pem系列
-    mae,mape,rmse = masked_mae(final_pred, final_target),\
-                    masked_mape(final_pred, final_target,0.0)*100,masked_rmse(final_pred, final_target)
-    print('测试集完整的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse,mape,mae))
-
-    mae2,mape2,rmse2 = masked_mae(final_pred[:,:,2], final_target[:,:,2]),\
-                       masked_mape(final_pred[:,:,2], final_target[:,:,2],0.0)*100,masked_rmse(final_pred[:,:,2], final_target[:,:,2])
-    print('测试集3步的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
-
-    mae2,mape2,rmse2 = masked_mae(final_pred[:,:,5], final_target[:,:,5]),\
-                       masked_mape(final_pred[:,:,5], final_target[:,:,5],0.0)*100,masked_rmse(final_pred[:,:,5], final_target[:,:,5])
-    print('测试集6步的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
-
-    mae2,mape2,rmse2 = masked_mae(final_pred[:,:,-1], final_target[:,:,-1]),\
-                       masked_mape(final_pred[:,:,-1], final_target[:,:,-1],0.0)*100,masked_rmse(final_pred[:,:,-1], final_target[:,:,-1])
-    print('测试集12步的\nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
-
+mae2,mape2,rmse2 = masked_mae(final_pred[:,:,-1], final_target[:,:,-1],0.0),\
+                    masked_mape(final_pred[:,:,-1], final_target[:,:,-1],0.0)*100,masked_rmse(final_pred[:,:,-1], final_target[:,:,-1],0.0)
+print('Prediction performance in the twelfth time step: \nRMSE: {}, MAPE: {}, MAE: {}'.format(rmse2,mape2,mae2))
