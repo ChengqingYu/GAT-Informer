@@ -7,7 +7,7 @@ import csv
 data_name = "PeMS04"
 data_file_path = data_name + "/raw/" + data_name + ".npz"
 
-history_seq_len = 12 ###建模的数据长度
+history_seq_len = 12 ###input length
 future_seq_len = 12
 train_ratio = 0.6
 valid_ratio = 0.2
