@@ -26,7 +26,7 @@ def Inverse_normalization(x,max,min):
 
 ### PEMS-BAY、METR-LA、PeMS04、PeMS08、AQI
 data_name = 'PeMS04'
-data_file = "../../data/" + data_name + "/data12.npz"
+data_file = "data/" + data_name + "/data12.npz"
 
 raw_data = np.load(data_file,allow_pickle=True)
 print(raw_data.files)
