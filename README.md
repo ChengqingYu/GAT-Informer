@@ -5,13 +5,12 @@ For commercial reasons, the original code and data cannot be open sourced. In th
 
 If the code is helpful to you, please cite the following paper:
 ```bibtex
-@article{YU2023110864,
-title = {Attention mechanism is useful in spatio-temporal wind speed prediction: Evidence from China},
-author = {Chengqing Yu and Guangxi Yan and Chengming Yu and Xiwei Mi},
-journal = {Applied Soft Computing},
-pages = {110864},
-year = {2023},
-issn = {1568-4946},
-doi = {https://doi.org/10.1016/j.asoc.2023.110864}
+@article{yu2023attention,
+  title={Attention mechanism is useful in spatio-temporal wind speed prediction: Evidence from China},
+  author={Yu, Chengqing and Yan, Guangxi and Yu, Chengming and Mi, Xiwei},
+  journal={Applied Soft Computing},
+  pages={110864},
+  year={2023},
+  publisher={Elsevier}
 }
 ```
