@@ -9,6 +9,7 @@ If the code is helpful to you, please cite the following paper:
   title={Attention mechanism is useful in spatio-temporal wind speed prediction: Evidence from China},
   author={Yu, Chengqing and Yan, Guangxi and Yu, Chengming and Mi, Xiwei},
   journal={Applied Soft Computing},
+  volume={148},
   pages={110864},
   year={2023},
   publisher={Elsevier}
