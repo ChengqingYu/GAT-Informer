@@ -11,6 +11,7 @@ from metric.mask_metric import masked_mae,masked_mape,masked_rmse,masked_mse
 from block.informer_arch import Informer, InformerStack
 from block.GAT import GraphAttentionLayer
 from block.cross import cross_att
+from block.revin import RevIN
 
 plt.rcParams['font.sans-serif']=['SimHei'] #用来正常显示中文标签
 plt.rcParams['axes.unicode_minus']=False #用来正常显示负号
@@ -138,7 +139,8 @@ class GATINFORMER(nn.Module):
         self.num_layer = num_layer
         self.lay_norm = nn.LayerNorm([out_len])
         self.IF_cross = IF_cross
-
+        self.RevIN = RevIN(enc_in)
+                     
         ###GAT
         self.GAT1 = GraphAttentionLayer(seq_len, out_len, dropout)
         self.GAT2 = GraphAttentionLayer(out_len, out_len, dropout)
@@ -170,6 +172,8 @@ class GATINFORMER(nn.Module):
         graph_data = graph_data.to(device)
         graph_data = GATINFORMER.calculate_laplacian_with_self_loop(graph_data)
 
+        x = self.RevIN(x.transpose(-2,-1),'norm').transpose(-2,-1)
+
         for i in range(self.num_layer):
             if i == 0:
                 prediction_GAT = F.gelu(self.GAT1(x,graph_data))
@@ -189,7 +193,10 @@ class GATINFORMER(nn.Module):
             x = self.lay_norm(x).transpose(-2, -1)
 
         ### Obtain the final results
-        x = self.decoder(x).transpose(-2, -1)
+        x = self.decoder(x)
+        x = self.RevIN(x, 'denorm')
+        x = x.transpose(-2,-1)
+        
         return x
 
     @staticmethod
